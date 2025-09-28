@@ -3,8 +3,8 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
-DOCS_DIR = os.getenv("DOCS_DIR", "./data/docs")
-FAISS_DIR = os.getenv("FAISS_DIR", "./data/faiss_index")
+DOCS_DIR = os.getenv("DOCS_DIR", os.path.join(Path(__file__).parent, "./data/docs"))
+FAISS_DIR = os.getenv("FAISS_DIR", os.path.join(Path(__file__).parent, "./data/faiss_index"))
 
 # LLM provider selection:
 #   LLM_PROVIDER=ollama (default) or openai
