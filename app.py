@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from re import finditer
 from typing import Any, Dict, Generator, Optional
 
 from fastapi import FastAPI, Request
@@ -133,7 +134,7 @@ def _generate_streaming(answer: str, model: str) -> Generator[bytes, None, None]
     }
     yield f"data: {json.dumps(head, ensure_ascii=False)}\n\n".encode("utf-8")
 
-    for chunk in answer:
+    for chunk in _iter_word_chunks(answer, words_per_event=1):
         chunk_payload = {
             "id": head["id"],
             "object": "chat.completion.chunk",
@@ -165,6 +166,23 @@ def _generate_streaming(answer: str, model: str) -> Generator[bytes, None, None]
     }
     yield f"data: {json.dumps(tail, ensure_ascii=False)}\n\n".encode("utf-8")
     yield b"data: [DONE]\n\n"
+
+
+def _iter_word_chunks(text: str, *, words_per_event: int = 1) -> Generator[str, None, None]:
+    """
+    Yield word-level chunks while keeping trailing spaces/punctuation.
+    - words_per_event: group N words per SSE event (1 = word-level)
+    """
+    buf: list[str] = []
+    # 단어(공백 아닌 연속) + 뒤따르는 공백까지 함께 매칭해 가독성 유지
+    for m in finditer(r"\S+\s*", text):
+        buf.append(m.group(0))
+        # 버퍼가 원하는 단어 수에 도달하면 내보냄
+        if len(buf) >= words_per_event:
+            yield "".join(buf)
+            buf.clear()
+    if buf:
+        yield "".join(buf)
 
 
 def _openai_like_payload(answer: str, model: str) -> Dict[str, Any]:
