@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 
-from langchain.chains import LLMChain
-from langchain.prompts import PromptTemplate
 from langchain_community.chat_models import ChatOllama
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 
@@ -115,20 +114,18 @@ class QueryRewriteModule(BaseModule):
     """Optional: rewrite query for retrieval."""
 
     def __init__(self, llm: BaseChatModel):
-        self.chain = LLMChain(
-            llm=llm,
-            prompt=PromptTemplate(
-                template=(
-                    "Rewrite the user's query to maximize retrieval quality.\n"
-                    "Return only the rewritten query.\n\nUser query: {query}"
-                ),
-                input_variables=["query"],
+        prompt = PromptTemplate(
+            template=(
+                "Rewrite the user's query to maximize retrieval quality.\n"
+                "Return only the rewritten query.\n\nUser query: {query}"
             ),
+            input_variables=["query"],
         )
+        self.runnable = prompt | llm | StrOutputParser()
 
     def execute(self, data: ModuleData) -> ModuleData:
-        out = self.chain({"query": data.query})["text"]
-        data.query_refined = out.strip() or data.query
+        out: str = self.runnable.invoke({"query": data.query})
+        data.query_refined = (out or "").strip() or data.query
         return data
 
 
@@ -137,20 +134,21 @@ class TranslatorModule(BaseModule):
 
     def __init__(self, llm: BaseChatModel, target_language: str = "ko"):
         self.target_language = target_language
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", f"Translate the user's query to {target_language}. Return only the translation."),
-            ("human", "{text}"),
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "Translate the user's query to {lang}. Return only the translation."),
+            ("human", "{query}")
         ])
-        self.llm = llm
+        self.runnable = prompt.partial(lang=target_language) | llm | StrOutputParser()
 
     def execute(self, data: ModuleData) -> ModuleData:
         # bypass if already Korean and target is Korean
-        if self.target_language.lower().startswith("ko") and any(
-                "\uac00" <= ch <= "\ud7a3" for ch in data.query_refined):
+        if (self.target_language.lower().startswith("ko")
+                and any("\uac00" <= ch <= "\ud7a3" for ch in data.query_refined)):
             return data
-        msgs = self.prompt.format_messages(text=data.query_refined)
-        resp = self.llm.invoke(msgs)
-        data.query_refined = _to_text(resp.content) or data.query_refined
+
+        src = (data.query_refined or data.query or "").strip()
+        out: str = self.runnable.invoke({"query": src})
+        data.query_refined = (out or "").strip() or src
         return data
 
 
@@ -161,7 +159,7 @@ class RetrieverModule(BaseModule):
         self.retriever = retriever
 
     def execute(self, data: ModuleData) -> ModuleData:
-        docs = self.retriever.get_relevant_documents(data.query_refined)
+        docs = self.retriever.invoke(data.query_refined)
         scores = None
         try:
             vs = getattr(self.retriever, "vectorstore", None)
@@ -191,9 +189,8 @@ class AnswerModule(BaseModule):
     """Single-pass synthesis strictly from retrieved context."""
 
     def __init__(self, llm: BaseChatModel, max_context_chars: int):
-        self.llm = llm
         self.max_context_chars = max_context_chars
-        self.prompt = PromptTemplate(
+        prompt = PromptTemplate(
             template=(
                 "You are a precise assistant. Answer ONLY with information from the provided context.\n"
                 "If the answer is not in the context, reply: '정보 없음'.\n"
@@ -202,7 +199,7 @@ class AnswerModule(BaseModule):
             ),
             input_variables=["context", "question"],
         )
-        self.chain = LLMChain(llm=self.llm, prompt=self.prompt)
+        self.runnable = prompt | llm | StrOutputParser()
 
     @staticmethod
     def _build_context(docs: List[Document], limit: int) -> str:
@@ -230,8 +227,8 @@ class AnswerModule(BaseModule):
 
     def execute(self, data: ModuleData) -> ModuleData:
         context = self._build_context(data.documents, self.max_context_chars)
-        res = self.chain({"context": context, "question": data.query})
-        data.answer = res["text"].strip()
+        res: str = self.runnable.invoke({"context": context, "question": data.query})
+        data.answer = (res or "").strip()
         return data
 
 

@@ -1,7 +1,7 @@
 from langchain.schema import Document
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter, TokenTextSplitter
 
 from config import *
@@ -58,8 +58,8 @@ def ensure_vector_store() -> FAISS:
 def _split_document(docs: list[Document]):
     chunks: list[Document] = []
 
-    def _base_meta(d: Document) -> dict:
-        m = dict(d.metadata or {})
+    def _base_meta(doc: Document) -> dict:
+        m = dict(doc.metadata or {})
         # 파일 경로가 있다면 보존
         if "source" in m:
             m["source"] = m["source"]

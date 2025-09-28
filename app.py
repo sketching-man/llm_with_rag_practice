@@ -209,3 +209,5 @@ def _openai_like_payload(answer: str, model: str) -> Dict[str, Any]:
 
 
 # endregion
+
+# TODO: 현재는 이미 완성된 문장을 보낼 때 쪼개는 형태. 진짜 모델로부터 조금씩 받을 때 마다 전달하는 형태 추후 구현이 필요.
