@@ -9,6 +9,7 @@ from langchain_community.chat_models import ChatOllama
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 
 from config import *
@@ -79,12 +80,21 @@ def _to_text(content: Any) -> str:
 
 
 def _get_llm(temperature: Optional[float] = None) -> BaseChatModel:
+    if LLM_PROVIDER == "groq":
+        return ChatGroq(
+            model=GROQ_MODEL,
+            api_key=GROQ_API_KEY,
+            temperature=temperature,
+            timeout=60,
+            max_retries=2,
+        )
+
     if LLM_PROVIDER == "openai":
         # Works with OpenAI AND any OpenAI-compatible base_url (e.g., vLLM)
         return ChatOpenAI(
+            base_url=OPENAI_BASE_URL,  # None -> api.openai.com
             model=OPENAI_MODEL,
             api_key=OPENAI_API_KEY,
-            base_url=OPENAI_BASE_URL,  # None -> api.openai.com
             temperature=temperature,
         )
 
@@ -233,6 +243,7 @@ def make_handler(rag: Pipeline):
     def handle(query: str) -> Dict[str, Any]:
         data = rag.execute(query=query)
         return {"answer": data.answer, "sources": data.sources, "query_rewritten": data.query_refined}
+
     return handle
 
 # endregion
