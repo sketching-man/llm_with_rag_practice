@@ -7,7 +7,7 @@ DOCS_DIR = os.getenv("DOCS_DIR", os.path.join(Path(__file__).parent, "./data/doc
 FAISS_DIR = os.getenv("FAISS_DIR", os.path.join(Path(__file__).parent, "./data/faiss_index"))
 
 # LLM provider selection:
-#   LLM_PROVIDER=ollama (default) or openai
+#   LLM_PROVIDER=groq (default) | ollama | openai
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 
 # Ollama settings
@@ -27,3 +27,9 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # Embeddings model
 EMB_MODEL = os.getenv("EMB_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+
+# Vector DB chunking settings
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "600"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
+# "recursive" | "markdown" | "token" (markdown은 헤더 단위 분해 + 보조 분할)
+CHUNK_STRATEGY = os.getenv("CHUNK_STRATEGY", "recursive")
