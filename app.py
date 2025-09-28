@@ -35,6 +35,7 @@ class ChatCompletionRequest(BaseModel):
 VECTORSTORE = ensure_vector_store()
 RETRIEVER = VECTORSTORE.as_retriever(search_kwargs={"k": 4})
 
+
 # endregion
 
 # region Setup RAG
@@ -51,17 +52,21 @@ RAG_PIPELINE = build_rag_pipeline(
 )
 
 RAG_HANDLE = make_handler(RAG_PIPELINE)
+
+
 # endregion
 
 # region FastAPI app
+
 app = FastAPI(title="OpenAI-compatible RAG Server (LangChain)")
 
 
 @app.post("/v1/chat/completions")
 async def chat_completions(req: ChatCompletionRequest, request: Request):
     # Authorization header is accepted but not enforced
+    debug_flag = True  # Turn off if not debugging
     question = _extract_user_question(req.messages)
-    result = RAG_HANDLE(query=question)
+    result = RAG_HANDLE(query=question, debug=debug_flag)
     answer = result["answer"]
 
     if req.stream:
@@ -70,6 +75,14 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
             media_type="text/event-stream",
         )
     payload = _openai_like_payload(answer, req.model)
+    if not req.stream and debug_flag:
+        payload["x_rag_debug"] = {
+            "query_rewritten": result.get("query_rewritten"),
+            "sources": result.get("sources"),
+            "scores": (result.get("debug") or {}).get("scores"),
+            "previews": (result.get("debug") or {}).get("previews"),
+        }
+
     return JSONResponse(content=payload)
 
 
@@ -175,7 +188,8 @@ def _openai_like_payload(answer: str, model: str) -> Dict[str, Any]:
             "total_tokens": None,
         },
     }
+
+
 # endregion
 
 # TODO: 스트리밍 응답 점검
-# TODO: RAG 참조 제대로 하는지 체크

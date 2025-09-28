@@ -37,6 +37,7 @@ class ModuleData:
     documents: List[Document] = field(default_factory=list)
     answer: str = ""
     sources: List[str] = field(default_factory=list)
+    debug: Dict[str, Any] = field(default_factory=dict)
 
 
 class BaseModule:
@@ -79,7 +80,7 @@ def _to_text(content: Any) -> str:
     return str(content)
 
 
-def _get_llm(temperature: Optional[float] = None) -> BaseChatModel:
+def _get_llm(temperature: float = 0.2) -> BaseChatModel:
     if LLM_PROVIDER == "groq":
         return ChatGroq(
             model=GROQ_MODEL,
@@ -109,6 +110,7 @@ def _get_llm(temperature: Optional[float] = None) -> BaseChatModel:
 # endregion
 
 # region Modules
+
 class QueryRewriteModule(BaseModule):
     """Optional: rewrite query for retrieval."""
 
@@ -160,14 +162,28 @@ class RetrieverModule(BaseModule):
 
     def execute(self, data: ModuleData) -> ModuleData:
         docs = self.retriever.get_relevant_documents(data.query_refined)
+        scores = None
+        try:
+            vs = getattr(self.retriever, "vectorstore", None)
+            k = getattr(self.retriever, "search_kwargs", {}).get("k", 4)
+            if vs and hasattr(vs, "similarity_search_with_score"):
+                pairs = vs.similarity_search_with_score(data.query_refined, k=k)
+                docs = [d for d, _ in pairs]
+                scores = [float(s) for _, s in pairs]
+        except Exception:
+            pass
+
         # store sources for client
         sources: List[str] = []
         for d in docs:
             src = d.metadata.get("source") if isinstance(d.metadata, dict) else None
             if src:
                 sources.append(os.path.basename(str(src)))
+
         data.documents = docs
         data.sources = sources
+        data.debug["scores"] = scores
+
         return data
 
 
@@ -221,7 +237,6 @@ class AnswerModule(BaseModule):
 
 # endregion
 
-
 # region Builder & handler
 
 def build_rag_pipeline(cfg: PipelineConfig, retriever, *, enable_query_rewrite: bool = True,
@@ -240,10 +255,31 @@ def build_rag_pipeline(cfg: PipelineConfig, retriever, *, enable_query_rewrite: 
 
 
 def make_handler(rag: Pipeline):
-    def handle(query: str) -> Dict[str, Any]:
+    def handle(query: str, *, debug: bool = False) -> Dict[str, Any]:
         data = rag.execute(query=query)
-        return {"answer": data.answer, "sources": data.sources, "query_rewritten": data.query_refined}
+        result = {
+            "answer": data.answer,
+            "sources": data.sources,
+            "query_rewritten": data.query_refined,
+        }
+
+        if debug:
+            previews = []
+            for d in data.documents:
+                src = d.metadata.get("source") if isinstance(d.metadata, dict) else None
+                previews.append({
+                    "source": os.path.basename(str(src)) if src else None,
+                    "preview": (d.page_content or "")[:200],
+                })
+            result["debug"] = {
+                "scores": data.debug.get("scores"),
+                "previews": previews,
+                "context_chars": sum(len((d.page_content or "")) for d in data.documents),
+            }
+
+        return result
 
     return handle
+
 
 # endregion
